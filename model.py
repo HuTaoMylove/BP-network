@@ -1,22 +1,12 @@
 import torch
+import copy
 
 
-class BasicModel:
+class Basic:
     def __init__(self):
         self.w = None
-        self.bias = None
+        self.b = None
         self.forward_value = None
-
-    def forward(self, input):
-        pass
-
-    def backward(self, input):
-        pass
-
-
-class BasicActivation:
-    def __init__(self):
-        pass
 
     def forward(self, input):
         pass
@@ -31,69 +21,69 @@ class BasicActivation:
         pass
 
 
-class BasicNorm:
-    def __init__(self):
-        self.mean = None
-        self.var = None
-        self.forward_value = None
-
-    def forward(self, input):
-        pass
-
-    def backward(self, input):
-        pass
-
-    def step(self, lr=0.001):
-        pass
-
-
-class Sigmoid(BasicActivation):
+class Sigmoid(Basic):
     def __init__(self):
         super(Sigmoid, self).__init__()
 
     def forward(self, input):
-        self.forward_value = 1 / (1 + torch.exp(-input))
-        return self.forward_value
+        out = 1 / (1 + torch.exp(-input))
+        self.forward_value = copy.deepcopy(out.detach().clone())
+        return out
 
     def backward(self, input):
         return input * self.forward_value.transpose(1, 2) * (1 - self.forward_value.transpose(1, 2))
 
 
-class Linear(BasicModel):
+class Tanh(Basic):
+    def __init__(self):
+        super(Tanh, self).__init__()
+
+    def forward(self, input):
+        out = (1 - torch.exp(-2*input)) / (1 + torch.exp(-2*input))
+        self.forward_value = copy.deepcopy(out.detach().clone())
+        return out
+    def backward(self, input):
+        return input * (1-self.forward_value.transpose(1, 2)*(1-self.forward_value.transpose(1, 2)))
+
+
+
+class Linear(Basic):
     def __init__(self, input, output, bias=True):
         super(Linear, self).__init__()
         assert type(input) is int
         assert type(output) is int
-        self.w = torch.rand([output, input], dtype=torch.float32, requires_grad=True)
+        self.w = 0.1 * torch.randn([output, input], dtype=torch.float32, requires_grad=True)
         if bias:
-            self.b = torch.rand([output, 1], dtype=torch.float32, requires_grad=True)
+            self.b = 0.1 * torch.randn([output, 1], dtype=torch.float32, requires_grad=True)
 
     def zero_grad(self):
-        self.w.grad = torch.ones_like(self.w)
+        self.w.grad = torch.zeros_like(self.w)
         if self.b is not None:
-            self.b.grad = torch.ones_like(self.b)
+            self.b.grad = torch.zeros_like(self.b)
 
     def forward(self, input):
         self.batchsize, self.input_channel = input.shape[0], input.shape[1]
         w = self.w.repeat(self.batchsize, 1, 1)
-        b = self.b.repeat(self.batchsize, 1, 1)
+        if self.b is not None:
+            b = self.b.repeat(self.batchsize, 1, 1)
+
         out = torch.bmm(w, input)
-        self.forward_value = input
-        return out + b
+        self.forward_value = copy.deepcopy(input.detach().clone())
+        if self.b is not None:
+            return out + b
+        else:
+            return out
 
     def backward(self, input=None):
-        if input is None:
-            self.w.grad = self.forward_value.mean(0, keepdim=True) + self.w.grad
-            self.b.grad = torch.ones_like(self.b.grad)
-            return self.w.repeat(self.batchsize, 1, 1)
-        else:
-            self.w.grad = torch.bmm(input.transpose(1, 2), self.forward_value.transpose(1, 2)).mean(0) + self.w.grad
+        self.w.grad = torch.bmm(input.transpose(1, 2), self.forward_value.transpose(1, 2)).mean(0) + self.w.grad
+        if self.b is not None:
             self.b.grad = input.mean(0).T
-            return torch.bmm(input, self.w.repeat(self.batchsize, 1, 1))
+        return torch.bmm(input, self.w.repeat(self.batchsize, 1, 1))
 
     def step(self, lr=0.001):
         self.w.data -= lr * self.w.grad
-        self.b.data -= lr * self.b.grad
+        if self.b is not None:
+            self.b.data -= lr * self.b.grad
 
 
 class Sequential:
