@@ -1,10 +1,9 @@
 import torch
-import torch.nn as nn
-from model import Linear, Sequential, Sigmoid, Tanh
+import nn
 from utils import load_data
+import optims
 
 if __name__ == "__main__":
-
     """
     设置随机种子
     """
@@ -25,19 +24,20 @@ if __name__ == "__main__":
     """
     定义网络架构
     """
-    net = Sequential([Linear(5, 5), Linear(5, 1), Sigmoid()])
-
-    for i in range(3000):
+    net = nn.Sequential([nn.Linear(5, 12), nn.Linear(12, 12), nn.Linear(12, 1), nn.Sigmoid()])
+    loss = nn.CrossEntropy(net)
+    optim = optims.SGD(net, 0.01, 0.001)
+    for i in range(2000):
         bidx = torch.randperm(boydata.shape[0])[:24]
         gidx = torch.randperm(girldata.shape[0])[:24]
         label = torch.ones(48).reshape(-1, 1)
         label[24:, 0] = 0
         batch = torch.cat([boydata[bidx], girldata[gidx]], dim=0)
-        net.zero_grad()
+        optim.zero_grad()
         out = net.forward(batch.unsqueeze(-1))
-        loss = ((out - label) ** 2).mean()
-        net.backward((out - label.reshape(out.shape)).transpose(1, 2))
-        net.step(0.01)
+        loss_value = loss.forward(out, label)
+        loss.backward()
+        optim.step()
         with torch.no_grad():
             out = net.forward(training_data.unsqueeze(-1))
             p = out > 0.5
