@@ -2,7 +2,7 @@ import pandas as pd
 from homework1 import data_washing
 import torch
 import numpy as np
-
+from sklearn.metrics import roc_auc_score, roc_curve, auc, confusion_matrix
 
 def load_data():
     data = pd.read_excel('2023模式识别数据集汇总.xls')
@@ -25,4 +25,27 @@ def load_data():
     training_data = training_data[height_idx * weight_idx * lungs_idx]
     gender = gender[height_idx * weight_idx * lungs_idx]
     labels = torch.from_numpy(gender).to(torch.float32).reshape(-1, 1)
-    return training_data, labels,gender
+    return training_data, labels, gender
+
+def accuracy_calculation(actual_label, predicted_label):
+    """计算准确率
+    :param actual_label: 真实类标
+    :param predicted_label: 模型预测的类标
+    :return: 准确率（百分制）
+    """
+    correct_count = 0
+    for i in range(len(actual_label)):
+        if actual_label[i] == predicted_label[i]:
+            correct_count += 1
+
+    # 计算混淆矩阵
+    matrix = confusion_matrix(actual_label,predicted_label)
+    TP = matrix[0][0]
+    FP = matrix[0][1]
+    FN = matrix[1][0]
+    TN = matrix[1][1]
+    SE = TP/(TP+FN)
+    SP = TN/(TN+FP)
+    ACC = (TP+TN)/(TP+FP+TN+FN)
+
+    return SE,SP,ACC

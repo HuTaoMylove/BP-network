@@ -7,6 +7,8 @@ class Basic:
         self.w = None
         self.b = None
         self.forward_value = None
+        self.w_history_grad = None
+        self.b_history_grad = None
 
     def forward(self, input):
         pass
@@ -52,9 +54,12 @@ class Linear(Basic):
         super(Linear, self).__init__()
         assert type(input) is int
         assert type(output) is int
-        self.w = 0.1 * torch.randn([output, input], dtype=torch.float32, requires_grad=True)
+
+        self.w = torch.rand([output, input], dtype=torch.float32, requires_grad=True)
+        self.w_history_grad = torch.zeros_like(self.w)
         if bias:
-            self.b = 0.1 * torch.randn([output, 1], dtype=torch.float32, requires_grad=True)
+            self.b = torch.rand([output, 1], dtype=torch.float32, requires_grad=True)
+            self.b_history_grad = torch.zeros_like(self.b)
 
     def zero_grad(self):
         self.w.grad = torch.zeros_like(self.w)
@@ -62,13 +67,13 @@ class Linear(Basic):
             self.b.grad = torch.zeros_like(self.b)
 
     def forward(self, input):
+        self.forward_value = copy.deepcopy(input.detach().clone())
         self.batchsize, self.input_channel = input.shape[0], input.shape[1]
         w = self.w.repeat(self.batchsize, 1, 1)
         if self.b is not None:
             b = self.b.repeat(self.batchsize, 1, 1)
 
         out = torch.bmm(w, input)
-        self.forward_value = copy.deepcopy(input.detach().clone())
         if self.b is not None:
             return out + b
         else:
@@ -78,12 +83,15 @@ class Linear(Basic):
         self.w.grad = torch.bmm(input.transpose(1, 2), self.forward_value.transpose(1, 2)).mean(0) + self.w.grad
         if self.b is not None:
             self.b.grad = input.mean(0).T
+
         return torch.bmm(input, self.w.repeat(self.batchsize, 1, 1))
 
     def step(self, lr=0.001):
         self.w.data -= lr * self.w.grad
         if self.b is not None:
             self.b.data -= lr * self.b.grad
+        self.w_history_grad = self.w.grad
+        self.b_history_grad = self.b.grad
 
 
 class Sequential:
@@ -123,16 +131,15 @@ class L2loss(Basic):
         return self.net.backward(self.forward_value)
 
 
-class CrossEntropy(Basic):
+class CrossEntropy(L2loss):
     def __init__(self, net: Basic):
-        super(CrossEntropy, self).__init__()
-        self.net = net
+        super(CrossEntropy, self).__init__(net)
 
     def forward(self, input, label):
         self.forward_value = (-label.reshape(input.shape) * 1 / input + (1 - label.reshape(input.shape)) * 1 / (
-                    1 - input)).transpose(1, 2)
+                1 - input)).transpose(1, 2)
         return (-label.reshape(input.shape) * torch.log(input) - (1 - label.reshape(input.shape)) * torch.log(
             1 - input)).mean()
 
     def backward(self, input=None):
-        return self.net.backward(self.forward_value)
+        super(CrossEntropy, self).backward()
