@@ -46,7 +46,7 @@ class Tanh(Basic):
         return out
 
     def backward(self, input):
-        return input * (1 - self.forward_value.transpose(1, 2) * (1 - self.forward_value.transpose(1, 2)))
+        return input * (1 - self.forward_value.transpose(1, 2) * self.forward_value.transpose(1, 2))
 
 
 class Linear(Basic):
@@ -88,10 +88,10 @@ class Linear(Basic):
 
     def step(self, lr=0.001):
         self.w.data -= lr * self.w.grad
+        self.w_history_grad = self.w.grad
         if self.b is not None:
             self.b.data -= lr * self.b.grad
-        self.w_history_grad = self.w.grad
-        self.b_history_grad = self.b.grad
+            self.b_history_grad = self.b.grad
 
 
 class Sequential:

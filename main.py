@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import torch
 import nn
-from sklearn.metrics import roc_auc_score, roc_curve, auc, confusion_matrix
+from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import KFold
 import numpy as np
 
@@ -11,7 +11,7 @@ import utils
 torch.manual_seed(2023)
 
 
-def train(batchsize=56, KFold_num=10, lr=0.2, epoch=1000):
+def train(batchsize=56, KFold_num=10, lr=0.2, epoch=1500):
     """设置超参数
     :param batchsize: 一次反向传播的样本数量
     :param KFold_num: kfold的数量
@@ -24,7 +24,7 @@ def train(batchsize=56, KFold_num=10, lr=0.2, epoch=1000):
     ********************"""
 
     training_data, labels, gender = utils.load_data()
-    # training_data = (training_data - training_data.mean(0, keepdim=True)) / training_data.std(0, keepdim=True)
+    training_data = (training_data - training_data.mean(0, keepdim=True)) / training_data.std(0, keepdim=True)
     training_data = (training_data - training_data.min(0, keepdim=True)[0]) / (
             training_data.max(0, keepdim=True)[0] - training_data.min(0, keepdim=True)[0])
     boydata = training_data[gender]
@@ -35,8 +35,10 @@ def train(batchsize=56, KFold_num=10, lr=0.2, epoch=1000):
     ********************"""
     kf = KFold(n_splits=KFold_num, shuffle=False)
     res = 0
-    losses = np.zeros(epoch)
-    acc = np.zeros(epoch)
+    train_losses = np.zeros(epoch)
+    test_losses = np.zeros(epoch)
+    train_acc = np.zeros(epoch)
+    test_acc = np.zeros(epoch)
 
     """******************
     基于数据划分开始训练
@@ -60,11 +62,15 @@ def train(batchsize=56, KFold_num=10, lr=0.2, epoch=1000):
         optim为网络的优化器，支持动量和weight_decay
         可选： SGD,SGDM
         ********************"""
-
+        batchsize = 48
         net = nn.Sequential(
-            [ nn.Linear(5, 5), nn.Linear(5, 1), nn.Sigmoid()])
+            [nn.Linear(input=5, output=5, bias=True),
+             nn.Linear(input=5, output=5, bias=True),
+             nn.Linear(input=5, output=5, bias=True),
+             nn.Linear(input=5, output=1, bias=True),
+             nn.Sigmoid()])
         loss = nn.CrossEntropy(net)
-        optim = optims.SGDM(net=net, lr=lr, weight_decay=0.001)
+        optim = optims.SGDM(net=net, lr=lr, weight_decay=0.001, momentum=0.9)
 
         best_acc = 0
         for i in range(epoch):
@@ -85,18 +91,21 @@ def train(batchsize=56, KFold_num=10, lr=0.2, epoch=1000):
             optim.zero_grad()
             out = net.forward(batch.unsqueeze(-1))
             loss_value = loss.forward(out, label)
-            losses[i] += loss_value
+            train_losses[i] += loss_value
             loss.backward()
             optim.step()
-
+            p = out > 0.5
+            acc = (p * label.reshape(p.shape) + ~p * (1 - label.reshape(p.shape))).mean()
+            train_acc[i] += acc
             """
             测试环节，测试准确率
             """
             out = net.forward(testdata.unsqueeze(-1))
             p = out > 0.5
             acc_t = (p * test_label.reshape(p.shape) + ~p * (1 - test_label.reshape(p.shape))).mean()
+            test_losses[i] += loss.forward(out, test_label)
             best_acc = max(best_acc, acc_t)
-            acc[i] += acc_t
+            test_acc[i] += acc_t
             if i == epoch - 1:
                 real_label.append(test_label.numpy())
                 perdict_label.append(p.squeeze(-1).numpy().astype(np.float32))
@@ -106,35 +115,55 @@ def train(batchsize=56, KFold_num=10, lr=0.2, epoch=1000):
     """
       绘图环节，计算SE, SP, ACC
     """
+    # 绘制ROC曲线
+    plt.figure(figsize=[16, 6])
+    plt.subplot(1, 3, 1)
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC曲线图')
+    for step in range(len(real_label)):
+        r, p = real_label[step], perdict_label[step]
+        fpr, tpr, _ = roc_curve(r, p)
+        roc_auc = auc(fpr, tpr)
+        plt.plot(fpr, tpr, lw=1, label=f'area = {round(roc_auc, 3)},fold={step + 1}')
     real_label = np.concatenate(real_label, axis=0)
     perdict_label = np.concatenate(perdict_label, axis=0)
+    fpr, tpr, _ = roc_curve(real_label, perdict_label)
+    roc_auc = auc(fpr, tpr)
+    plt.plot(fpr, tpr, color='orange', lw=3, label=f'area = {round(roc_auc, 3)},fold=mean')
+    plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.legend(loc="lower right")
+
+    # 计算SE，SP，ACC指标
+    print("BEST_ACC:", res / KFold_num)
     SE, SP, ACC = utils.accuracy_calculation(real_label, perdict_label)
     print("SE:", SE)
     print("SP:", SP)
     print("ACC:", ACC)
-    # 绘制ROC曲线
-    fpr, tpr, _ = roc_curve(real_label, perdict_label)
-    roc_auc = auc(fpr, tpr)
-    plt.subplot(1, 3, 1)
-    # 假正率为横坐标，真正率为纵坐标做曲线
-    plt.plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
-    plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('BP Algorithm')
-    plt.legend(loc="lower right")
-    print(res / KFold_num)
-    losses = losses / KFold_num
-    acc = acc / KFold_num
+
+    # 绘制损失和准确率图
+    train_losses = train_losses / KFold_num
+    test_losses = test_losses / KFold_num
+    train_acc = train_acc / KFold_num
+    test_acc = test_acc / KFold_num
     plt.subplot(1, 3, 2)
-    plt.plot(np.arange(epoch) + 1, losses)
+    plt.xlabel('训练步数')
+    plt.ylabel('损失值')
+    plt.title('训练损失图')
+    plt.plot(np.arange(epoch) + 1, train_losses, color='red', linestyle='-', label='训练损失')
+    plt.plot(np.arange(epoch) + 1, test_losses, color='blue', linestyle='-', label='测试损失')
+    plt.legend(loc="upper right")
     plt.subplot(1, 3, 3)
-    plt.plot(np.arange(epoch) + 1, acc)
+    plt.xlabel('训练步数')
+    plt.ylabel('准确率')
+    plt.title('准确率图')
+    plt.plot(np.arange(epoch) + 1, train_acc, color='red', linestyle='-', label='训练准确率')
+    plt.plot(np.arange(epoch) + 1, test_acc, color='blue', linestyle='-', label='测试准确率')
+    plt.legend(loc="lower right")
     plt.show()
-    # 计算SE，SP，ACC指标
 
 
 if __name__ == "__main__":
-    train(KFold_num=10)
+    train(KFold_num=10, batchsize=48)

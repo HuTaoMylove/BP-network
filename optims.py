@@ -32,7 +32,6 @@ class SGD(Basic_optim):
                     self.net.model_list[i].b.data = self.net.model_list[i].b.data * (1 - self.weight_decay)
         self.net.step(self.lr)
 
-
 class SGDM(SGD):
     def __init__(self, net: nn.Sequential, lr=0.001, momentum=0.9, weight_decay=0.001):
         super(SGDM, self).__init__(net, lr, weight_decay)
